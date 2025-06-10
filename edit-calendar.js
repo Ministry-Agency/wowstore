@@ -1,4 +1,4 @@
-class FixedCalendarManager {Add commentMore actions
+class FixedCalendarManager {
     constructor() {
         this.isInitialized = false;
         this.data = {
