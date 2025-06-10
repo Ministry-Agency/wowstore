@@ -1,3 +1,3 @@
 window.addEventListener('load', function() {
-    alert('test 1');
+    alert('test 2');
 });
