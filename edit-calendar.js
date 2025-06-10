@@ -1034,6 +1034,50 @@ class FixedCalendarManager {
         this.saveMonthData(monthKey);
     }
 
+    unblockDate(day) {
+        const monthKey = this.getCurrentMonthKey();
+        if (!monthKey || !this.data.blockedDates[monthKey]) return;
+        
+        const [year, month] = monthKey.split('-');
+        const dateStr = this.formatDate(day, month, year);
+        
+        // Удаляем дату из списка заблокированных
+        this.data.blockedDates[monthKey] = this.data.blockedDates[monthKey].filter(item => {
+            return (typeof item === 'object' && item.date) ? item.date !== dateStr : item !== dateStr;
+        });
+        
+        if (this.data.blockedDates[monthKey].length === 0) {
+            delete this.data.blockedDates[monthKey];
+        }
+        
+        // Восстанавливаем цену для даты
+        const defaultCost = this.getDefaultCost();
+        if (!this.data.basePrices[monthKey]) {
+            this.data.basePrices[monthKey] = {prices: [], defaultCost: defaultCost};
+        }
+        
+        const priceIndex = this.data.basePrices[monthKey].prices.findIndex(item => item.date === dateStr);
+        if (priceIndex !== -1) {
+            this.data.basePrices[monthKey].prices[priceIndex].price = defaultCost;
+        } else {
+            this.data.basePrices[monthKey].prices.push({date: dateStr, price: defaultCost});
+        }
+        
+        // Добавляем анимацию разблокировки
+        const dayWrapper = document.querySelector(`.calendar_day-wrapper:has([day="${day}"])`);
+        if (dayWrapper) {
+            dayWrapper.classList.add('unblocking');
+            setTimeout(() => {
+                dayWrapper.classList.remove('unblocking');
+            }, 500);
+        }
+        
+        this.updateAllDaysDisplay();
+        this.saveMonthData(monthKey);
+        
+        console.log(`✅ Дата ${dateStr} разблокирована`);
+    }
+
     clearBlockedDate(day) {
         const monthKey = this.getCurrentMonthKey();
         if (!monthKey || !this.data.blockedDates[monthKey]) return;
@@ -1239,84 +1283,94 @@ class FixedCalendarManager {
     }
 
     attachDaySelectionHandlers() {
-        document.addEventListener('click', (event) => {
-            const dayWrapper = event.target.closest('.calendar_day-wrapper');
-            if (!dayWrapper || dayWrapper.classList.contains('not_exist')) return;
+      document.addEventListener('click', (event) => {
+          const dayWrapper = event.target.closest('.calendar_day-wrapper');
+          if (!dayWrapper || dayWrapper.classList.contains('not_exist')) return;
 
-            const cell = dayWrapper.querySelector('[day]');
-            if (!cell) return;
+          const cell = dayWrapper.querySelector('[day]');
+          if (!cell) return;
 
-            const dayText = cell.textContent.trim();
-            if (!dayText) return;
+          const dayText = cell.textContent.trim();
+          if (!dayText) return;
 
-            const currentDate = parseInt(dayText);
-            const monthYearElement = document.querySelector('[current_month_year]');
-            if (!monthYearElement) return;
+          const currentDate = parseInt(dayText);
+          const monthYearElement = document.querySelector('[current_month_year]');
+          if (!monthYearElement) return;
 
-            const [currentMonthName, currentYear] = monthYearElement.textContent.trim().split(' ');
-            const fullDate = this.createFullDate(currentDate, currentMonthName, parseInt(currentYear));
-            
-            if (this.isPastOrCurrentDate(fullDate) || !this.selection.isConfirmed || dayWrapper.classList.contains('is-blocked')) return;
+          const [currentMonthName, currentYear] = monthYearElement.textContent.trim().split(' ');
+          const fullDate = this.createFullDate(currentDate, currentMonthName, parseInt(currentYear));
+          
+          // Проверяем, не прошедшая ли это дата
+          if (this.isPastOrCurrentDate(fullDate)) return;
+          
+          // Если дата заблокирована, разблокируем её при клике
+          if (dayWrapper.classList.contains('is-blocked')) {
+              this.unblockDate(currentDate);
+              return;
+          }
+          
+          // Дальше идёт существующая логика выбора дат...
+          if (!this.selection.isConfirmed) return;
 
-            const isInRange = this.isDateInRanges(fullDate);
+          const isInRange = this.isDateInRanges(fullDate);
 
-            if (isInRange && !this.data.excludedDays.has(fullDate.timestamp)) {
-                this.data.excludedDays.add(fullDate.timestamp);
-                delete this.data.dateDiscounts[fullDate.timestamp];
-                
-                const servicePriceElement = dayWrapper.querySelector('[service-price]');
-                if (servicePriceElement) servicePriceElement.textContent = this.getDefaultCost();
+          if (isInRange && !this.data.excludedDays.has(fullDate.timestamp)) {
+              this.data.excludedDays.add(fullDate.timestamp);
+              delete this.data.dateDiscounts[fullDate.timestamp];
+              
+              const servicePriceElement = dayWrapper.querySelector('[service-price]');
+              if (servicePriceElement) servicePriceElement.textContent = this.getDefaultCost();
 
-                this.clearWaitState();
-                this.selection.tempStart = null;
-                this.selection.tempStartMonth = null;
-                this.selection.tempStartYear = null;
-            } else {
-                if (!this.selection.tempStart) {
-                    this.clearWaitState();
-                    if (this.data.excludedDays.has(fullDate.timestamp)) {
-                        this.data.excludedDays.delete(fullDate.timestamp);
-                    }
+              this.clearWaitState();
+              this.selection.tempStart = null;
+              this.selection.tempStartMonth = null;
+              this.selection.tempStartYear = null;
+          } else {
+              if (!this.selection.tempStart) {
+                  this.clearWaitState();
+                  if (this.data.excludedDays.has(fullDate.timestamp)) {
+                      this.data.excludedDays.delete(fullDate.timestamp);
+                  }
 
-                    this.selection.tempStart = currentDate;
-                    this.selection.tempStartMonth = currentMonthName;
-                    this.selection.tempStartYear = parseInt(currentYear);
-                    dayWrapper.classList.add('is-wait');
-                    dayWrapper.classList.add('is-selected');
-                } else {
-                    let startDate = this.createFullDate(
-                        this.selection.tempStart, 
-                        this.selection.tempStartMonth, 
-                        this.selection.tempStartYear
-                    );
-                    let endDate = fullDate;
+                  this.selection.tempStart = currentDate;
+                  this.selection.tempStartMonth = currentMonthName;
+                  this.selection.tempStartYear = parseInt(currentYear);
+                  dayWrapper.classList.add('is-wait');
+                  dayWrapper.classList.add('is-selected');
+              } else {
+                  let startDate = this.createFullDate(
+                      this.selection.tempStart, 
+                      this.selection.tempStartMonth, 
+                      this.selection.tempStartYear
+                  );
+                  let endDate = fullDate;
 
-                    if (startDate.timestamp > endDate.timestamp) {
-                        [startDate, endDate] = [endDate, startDate];
-                    }
+                  if (startDate.timestamp > endDate.timestamp) {
+                      [startDate, endDate] = [endDate, startDate];
+                  }
 
-                    this.data.dateRanges.push({ start: startDate, end: endDate });
-                    this.selection.isConfirmed = false;
-                    this.toggleSettingsVisibility(true);
-                    this.updateChosenDates();
+                  this.data.dateRanges.push({ start: startDate, end: endDate });
+                  this.selection.isConfirmed = false;
+                  this.toggleSettingsVisibility(true);
+                  this.updateChosenDates();
 
-                    const selectedDiscountInput = document.querySelector('#selected_discount');
-                    if (selectedDiscountInput) selectedDiscountInput.value = '';
+                  const selectedDiscountInput = document.querySelector('#selected_discount');
+                  if (selectedDiscountInput) selectedDiscountInput.value = '';
 
-                    this.clearWaitState();
-                    this.selection.tempStart = null;
-                    this.selection.tempStartMonth = null;
-                    this.selection.tempStartYear = null;
-                }
-            }
+                  this.clearWaitState();
+                  this.selection.tempStart = null;
+                  this.selection.tempStartMonth = null;
+                  this.selection.tempStartYear = null;
+              }
+          }
 
-            this.updateAllDaysDisplay();
+          this.updateAllDaysDisplay();
 
-            const button_open = document.querySelector('[button_open]');
-            if (button_open && (this.data.dateRanges.length > 0 || this.data.excludedDays.size > 0)) {
-                button_open.classList.add('is--add-service');
-            }
-        });
+          const button_open = document.querySelector('[button_open]');
+          if (button_open && (this.data.dateRanges.length > 0 || this.data.excludedDays.size > 0)) {
+              button_open.classList.add('is--add-service');
+          }
+      });
 
         document.addEventListener('mouseover', (event) => {
             const dayWrapper = event.target.closest('.calendar_day-wrapper');
@@ -1369,178 +1423,215 @@ class FixedCalendarManager {
     }
 
     attachDiscountHandlers() {
-        const applyButton = document.querySelector('[calendar-apply-button]');
-        if (applyButton) {
-            applyButton.addEventListener('click', (event) => {
-                event.preventDefault();
-                
-                if (this.blockingMode) {
-                    const chosenDatesElement = document.querySelector('[chosen-dates]');
-                    if (chosenDatesElement) {
-                        const dateRangeText = chosenDatesElement.textContent.trim();
-                        const dateMatch = dateRangeText.match(/(\d+)\s*-\s*(\d+)\s*(\w+)/);
+    const applyButton = document.querySelector('[calendar-apply-button]');
+    if (applyButton) {
+        applyButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            
+            if (this.blockingMode) {
+                const chosenDatesElement = document.querySelector('[chosen-dates]');
+                if (chosenDatesElement) {
+                    const dateRangeText = chosenDatesElement.textContent.trim();
+                    const dateMatch = dateRangeText.match(/(\d+)\s*-\s*(\d+)\s*(\w+)/);
 
-                        if (dateMatch) {
-                            const startDay = parseInt(dateMatch[1]);
-                            const endDay = parseInt(dateMatch[2]);
-                            this.blockDateRange(startDay, endDay);
-                        }
+                    if (dateMatch) {
+                        const startDay = parseInt(dateMatch[1]);
+                        const endDay = parseInt(dateMatch[2]);
+                        this.blockDateRange(startDay, endDay);
                     }
-                    
-                    this.blockingMode = false;
-                    
-                    const button_open = document.querySelector('[button_open]');
-                    const blockButton = document.querySelector('[button_block]');
-                    if (button_open) button_open.classList.add('is--add-service');
-                    if (blockButton) blockButton.classList.remove('is--add-service');
-                    
-                    const discountWrapper = document.querySelector('.input-wrap:has(#selected_discount)');
-                    if (discountWrapper) discountWrapper.style.display = '';
-                    
-                    const selectedDiscountInput = document.querySelector('#selected_discount');
-                    if (selectedDiscountInput) {
-                        selectedDiscountInput.placeholder = '';
-                        selectedDiscountInput.disabled = false;
-                    }
-                    
-                    this.cancelLastRange();
-                } else {
-                    this.applyDiscountToRange();
                 }
-            });
-        }
-
-        const cancelButton = document.querySelector('[calendar-choosen-cancel]');
-        if (cancelButton) {
-            cancelButton.addEventListener('click', (event) => {
-                event.preventDefault();
                 
-                if (this.blockingMode) {
-                    this.blockingMode = false;
-                    const blockButton = document.querySelector('[button_block]');
-                    if (blockButton) blockButton.classList.remove('is--add-service');
-                    
-                    const discountWrapper = document.querySelector('.input-wrap:has(#selected_discount)');
-                    if (discountWrapper) discountWrapper.style.display = '';
-                    
-                    const selectedDiscountInput = document.querySelector('#selected_discount');
-                    if (selectedDiscountInput) {
-                        selectedDiscountInput.placeholder = '';
-                        selectedDiscountInput.disabled = false;
-                    }
+                this.blockingMode = false;
+                
+                const button_open = document.querySelector('[button_open]');
+                const blockButton = document.querySelector('[button_block]');
+                if (button_open) button_open.classList.add('is--add-service');
+                if (blockButton) blockButton.classList.remove('is--add-service');
+                
+                const discountWrapper = document.querySelector('.input-wrap:has(#selected_discount)');
+                if (discountWrapper) discountWrapper.style.display = '';
+                
+                const selectedDiscountInput = document.querySelector('#selected_discount');
+                if (selectedDiscountInput) {
+                    selectedDiscountInput.placeholder = '';
+                    selectedDiscountInput.disabled = false;
                 }
                 
                 this.cancelLastRange();
-            });
-        }
+            } else {
+                this.applyDiscountToRange();
+            }
+        });
+    }
 
-        // Weekend discount checkbox handling
-        const weekendDiscountCheckbox = document.querySelector('#Weekend-Discount, input[name="weekend_discount"][type="checkbox"]');
-        const weekendDiscountInput = document.querySelector('#weekend_discount, input[name="weekend_discount"][type="text"], input[name="Weekend-Discount"][type="text"]');
-        
-        if (weekendDiscountCheckbox && weekendDiscountInput) {
-            const toggleWeekendInput = (show) => {
-                weekendDiscountInput.style.display = show ? 'block' : 'none';
-            };
-
-            weekendDiscountCheckbox.addEventListener('change', (event) => {
-                const isChecked = event.target.checked;
-                toggleWeekendInput(isChecked);
-                localStorage.setItem('weekendDiscountEnabled', isChecked);
-                
-                if (isChecked) {
-                    const discountPercent = parseFloat(weekendDiscountInput.value.replace(/[^\d.]/g, '')) || 0;
-                    if (discountPercent > 0) {
-                        localStorage.setItem('weekendDiscountPercent', discountPercent);
-                        this.applyWeekendDiscount(discountPercent);
-                    }
-                } else {
-                    localStorage.removeItem('weekendDiscountPercent');
-                    this.removeWeekendDiscount();
-                }
-            });
-
-            weekendDiscountInput.addEventListener('input', (event) => {
-                let value = event.target.value;
-                let numericValue = value.replace(/[^\d.]/g, '');
-                let discountPercent = parseFloat(numericValue) || 0;
-                
-                if (value !== numericValue) {
-                    event.target.value = numericValue;
-                }
-                
-                if (discountPercent > 0) {
-                    localStorage.setItem('weekendDiscountPercent', discountPercent);
-                }
-                if (weekendDiscountCheckbox.checked && discountPercent > 0) {
-                    this.applyWeekendDiscount(discountPercent);
-                }
-                event.target.style.display = 'block';
-            });
-
-            weekendDiscountInput.addEventListener('blur', (event) => {
-                let value = event.target.value;
-                let numericValue = parseFloat(value);
-                
-                if (!isNaN(numericValue) && numericValue > 0 && !value.includes('%')) {
-                    event.target.value = numericValue + '%';
-                }
-                
-                if (weekendDiscountCheckbox.checked) {
-                    event.target.style.display = 'block';
-                }
-            });
+    const cancelButton = document.querySelector('[calendar-choosen-cancel]');
+    if (cancelButton) {
+        cancelButton.addEventListener('click', (event) => {
+            event.preventDefault();
             
-            weekendDiscountInput.addEventListener('focus', (event) => {
-                let value = event.target.value;
-                if (value.includes('%')) {
-                    event.target.value = value.replace('%', '');
+            if (this.blockingMode) {
+                this.blockingMode = false;
+                const blockButton = document.querySelector('[button_block]');
+                if (blockButton) blockButton.classList.remove('is--add-service');
+                
+                const discountWrapper = document.querySelector('.input-wrap:has(#selected_discount)');
+                if (discountWrapper) discountWrapper.style.display = '';
+                
+                const selectedDiscountInput = document.querySelector('#selected_discount');
+                if (selectedDiscountInput) {
+                    selectedDiscountInput.placeholder = '';
+                    selectedDiscountInput.disabled = false;
+                }
+            }
+            
+            this.cancelLastRange();
+        });
+    }
+
+    // Обработка скидки для выходных - поиск по атрибуту weekend_discount
+    const weekendDiscountInput = document.querySelector('[weekend_discount]');
+    
+    if (weekendDiscountInput) {
+        console.log('✅ Найден инпут для скидки на выходные');
+        
+        // Функция для обновления визуального отображения
+        const updateWeekendVisuals = (discountPercent) => {
+            const monthKey = this.getCurrentMonthKey();
+            if (!monthKey) return;
+            
+            const [year, month] = monthKey.split('-');
+            const basePrice = this.getDefaultCost();
+            const discountedPrice = discountPercent > 0 ? this.applyDiscount(basePrice, discountPercent) : basePrice;
+            
+            document.querySelectorAll('.calendar_day-wrapper:not(.not_exist)').forEach(dayWrapper => {
+                const dayElement = dayWrapper.querySelector('[day]');
+                const servicePriceElement = dayWrapper.querySelector('[service-price]');
+                if (!dayElement || !servicePriceElement) return;
+
+                const day = parseInt(dayElement.textContent.trim());
+                if (isNaN(day)) return;
+                
+                const date = this.formatDate(day, month, year);
+                
+                // Пропускаем прошедшие и заблокированные даты
+                if (this.isPastDate(date) || this.isDateBlocked(date, monthKey)) return;
+                
+                // Проверяем, является ли день выходным
+                if (this.isWeekend(date)) {
+                    if (discountPercent > 0) {
+                        // Применяем скидку
+                        servicePriceElement.textContent = discountedPrice;
+                        dayWrapper.classList.add('is-weekend-discount');
+                        
+                        // Добавляем визуальную подсказку о скидке
+                        let discountLabel = dayWrapper.querySelector('.weekend-discount-label');
+                        if (!discountLabel) {
+                            discountLabel = document.createElement('span');
+                            discountLabel.className = 'weekend-discount-label';
+                            discountLabel.style.cssText = 'font-size: 10px; color: #60a5fa; display: block;';
+                            servicePriceElement.parentNode.appendChild(discountLabel);
+                        }
+                        discountLabel.textContent = `-${discountPercent}%`;
+                    } else {
+                        // Убираем скидку
+                        servicePriceElement.textContent = basePrice;
+                        dayWrapper.classList.remove('is-weekend-discount');
+                        
+                        const discountLabel = dayWrapper.querySelector('.weekend-discount-label');
+                        if (discountLabel) discountLabel.remove();
                     }
-               event.stopPropagation();
-           });
+                }
+            });
+        };
 
-           const savedWeekendEnabled = localStorage.getItem('weekendDiscountEnabled') === 'true';
-           const savedDiscountPercent = localStorage.getItem('weekendDiscountPercent');
-           
-           if (savedWeekendEnabled) {
-               weekendDiscountCheckbox.checked = true;
-               toggleWeekendInput(true);
-               if (savedDiscountPercent) {
-                   weekendDiscountInput.value = savedDiscountPercent + '%';
-               }
-           } else {
-               toggleWeekendInput(false);
-           }
-       }
+        // Обработчик ввода
+        weekendDiscountInput.addEventListener('input', (event) => {
+            let value = event.target.value;
+            let numericValue = value.replace(/[^\d.]/g, '');
+            let discountPercent = parseFloat(numericValue) || 0;
+            
+            // Показываем только числа в поле
+            if (value !== numericValue) {
+                event.target.value = numericValue;
+            }
+            
+            console.log(`💰 Скидка на выходные: ${discountPercent}%`);
+            
+            // Сохраняем в localStorage
+            if (discountPercent > 0) {
+                localStorage.setItem('weekendDiscountPercent', discountPercent);
+                localStorage.setItem('weekendDiscountEnabled', 'true');
+            } else {
+                localStorage.removeItem('weekendDiscountPercent');
+                localStorage.removeItem('weekendDiscountEnabled');
+            }
+            
+            // Применяем скидку визуально
+            updateWeekendVisuals(discountPercent);
+            
+            // Применяем скидку к данным
+            if (discountPercent > 0) {
+                this.applyWeekendDiscount(discountPercent);
+            } else {
+                this.removeWeekendDiscount();
+            }
+        });
 
-       const selectedDiscountInput = document.querySelector('#selected_discount');
-       if (selectedDiscountInput) {
-           selectedDiscountInput.addEventListener('input', (event) => {
-               let value = event.target.value;
-               let numericValue = value.replace(/[^\d.]/g, '');
-               
-               if (value !== numericValue) {
-                   event.target.value = numericValue;
-               }
-           });
-           
-           selectedDiscountInput.addEventListener('blur', (event) => {
-               let value = event.target.value;
-               let numericValue = parseFloat(value);
-               
-               if (!isNaN(numericValue) && numericValue > 0 && !value.includes('%')) {
-                   event.target.value = numericValue + '%';
-               }
-           });
-           
-           selectedDiscountInput.addEventListener('focus', (event) => {
-               let value = event.target.value;
-               if (value.includes('%')) {
-                   event.target.value = value.replace('%', '');
-               }
-           });
-       }
-   }
+        // Добавляем % при потере фокуса
+        weekendDiscountInput.addEventListener('blur', (event) => {
+            let value = event.target.value;
+            let numericValue = parseFloat(value);
+            
+            if (!isNaN(numericValue) && numericValue > 0 && !value.includes('%')) {
+                event.target.value = numericValue + '%';
+            }
+        });
+        
+        // Убираем % при фокусе
+        weekendDiscountInput.addEventListener('focus', (event) => {
+            let value = event.target.value;
+            if (value.includes('%')) {
+                event.target.value = value.replace('%', '');
+            }
+        });
+        
+        // Восстанавливаем сохранённое значение
+        const savedDiscountPercent = parseFloat(localStorage.getItem('weekendDiscountPercent')) || 0;
+        if (savedDiscountPercent > 0) {
+            weekendDiscountInput.value = savedDiscountPercent + '%';
+            updateWeekendVisuals(savedDiscountPercent);
+        }
+    }
+
+    // Обработка инпута для выбранного диапазона
+    const selectedDiscountInput = document.querySelector('#selected_discount');
+    if (selectedDiscountInput) {
+        selectedDiscountInput.addEventListener('input', (event) => {
+            let value = event.target.value;
+            let numericValue = value.replace(/[^\d.]/g, '');
+            
+            if (value !== numericValue) {
+                event.target.value = numericValue;
+            }
+        });
+        
+        selectedDiscountInput.addEventListener('blur', (event) => {
+            let value = event.target.value;
+            let numericValue = parseFloat(value);
+            
+            if (!isNaN(numericValue) && numericValue > 0 && !value.includes('%')) {
+                event.target.value = numericValue + '%';
+            }
+        });
+        
+        selectedDiscountInput.addEventListener('focus', (event) => {
+            let value = event.target.value;
+            if (value.includes('%')) {
+                event.target.value = value.replace('%', '');
+            }
+        });
+    }
+}
 
    attachBlockingHandlers() {
        const blockButton = document.querySelector('[button_block]');
