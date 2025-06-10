@@ -1,5 +1,5 @@
 /**
- * Enhanced Calendar Manager
+ * 2
  * Version with date range selection, weekend discounts, and working clear button
  */
 
